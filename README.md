@@ -1,4 +1,4 @@
-# Atypon Food Service
+# Spoonacular Service
 a comprehensive set of endpoints focused on recipes, food products, nutrition data, and meal planning relies on Spoonacular API.
 
 ### Table of Contents
