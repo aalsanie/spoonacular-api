@@ -19,8 +19,8 @@ Detailed steps to get your development environment running:
 
 #### Clone the Repository
 ```shell
-git clone https://github.com/Ahmad-alsanie/atypon-food-api.git
-cd atypon-food-api
+git clone https://github.com/Ahmad-alsanie/food-api.git
+cd food-api
 ```
 
 #### Tests
@@ -51,11 +51,11 @@ spoonacular:
 #### With Docker
 #### Build & Run the Service
 ```shell
-docker build -t ahmad/atypon-food-api .
+docker build -t ahmad/food-api .
 ```
 
 ```shell
-docker run -p 8080:8080 -d ahmad/atypon-food-api
+docker run -p 8080:8080 -d ahmad/food-api
 ```
 
 ### API Documentation
