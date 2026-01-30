@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.reactive.server.WebTestClient;
@@ -16,9 +17,11 @@ import com.atypon.model.Nutrition;
 import com.atypon.model.Recipe;
 
 import java.util.List;
+import java.net.URI;
 
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -38,7 +41,7 @@ class RecipeControllerStressTest {
         recipe.setExtendedIngredients(List.of(cheese, pasta));
 
         // Mock the RestTemplate to return the predefined recipe
-        when(restTemplate.getForEntity(anyString(), eq(Recipe.class)))
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), isNull(), eq(Recipe.class)))
                 .thenReturn(new ResponseEntity<>(recipe, HttpStatus.OK));
 
         // Create the exclude request

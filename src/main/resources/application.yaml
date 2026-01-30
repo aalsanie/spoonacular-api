@@ -2,10 +2,74 @@ spring:
   application:
     name: atypon-food-api
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
 spoonacular:
   base-url: https://api.spoonacular.com
   api-key: ${API_KEY} # Set API key via environment variables
   ## For secure API KEY usage you can use Vault, aws secrete manager or k8s config map to manage secrets
+
+  health:
+    # If enabled, performs a real outbound call for health (consumes quota).
+    live-check-enabled: false
+    cache-ttl: 60s
+
+http:
+  client:
+    connect-timeout: 2s
+    read-timeout: 4s
+
+idempotency:
+  enabled: true
+  header: Idempotency-Key
+  ttl: 30m
+  max-entries: 5000
+  in-flight-wait: 0ms  # 0 = do not wait; return 409 on concurrent duplicate
+
+rate-limits:
+  inbound:
+    enabled: true
+    # per-client (IP) limits. This protects your API even if Spoonacular quotas are generous.
+    limit-for-period: 120
+    refresh-period: 60s
+    timeout: 0ms
+    max-clients: 10000
+
+alerting:
+  enabled: true
+  throttle: 60s
+
+resilience4j:
+  retry:
+    instances:
+      spoonacular:
+        max-attempts: 4
+        wait-duration: 200ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2.0
+        enable-randomized-wait: true
+        randomized-wait-factor: 0.25
+        retry-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpClientErrorException$TooManyRequests
+  ratelimiter:
+    instances:
+      spoonacular:
+        limit-for-period: 10
+        limit-refresh-period: 1s
+        timeout-duration: 0ms
 
 ## Documentation
 springdoc:
@@ -20,3 +84,6 @@ logging:
         web:
           client:
             RestTemplate: DEBUG
+
+server:
+  port: 8091

@@ -1,28 +1,28 @@
 package com.atypon.service;
 
-import com.atypon.config.SpoonacularConfig;
+import com.atypon.client.SpoonacularClient;
 import com.atypon.model.ExcludeRequest;
 import com.atypon.model.Ingredient;
 import com.atypon.model.Recipe;
 import com.fasterxml.jackson.databind.JsonNode;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.ArrayList;
 import java.util.List;
 
 @Service
-@RequiredArgsConstructor
 public class SpoonacularService {
 
     private final static Logger LOGGER = LoggerFactory.getLogger(SpoonacularService.class);
 
-    private final RestTemplate restTemplate;
-    private final SpoonacularConfig config;
+    private final SpoonacularClient client;
+
+    public SpoonacularService(SpoonacularClient client) {
+        this.client = client;
+    }
 
     /**
      * @param query: represents the name of the recipe
@@ -30,10 +30,8 @@ public class SpoonacularService {
      * @return list of recipes matching passed parameter
      * **/
     public List<Recipe> searchRecipes(String query, String cuisine) {
-        String url = String.format("%s/recipes/complexSearch?query=%s&cuisine=%s&apiKey=%s",
-                config.getBaseUrl(), query, cuisine, config.getApiKey());
-        ResponseEntity<JsonNode> response = restTemplate.getForEntity(url, JsonNode.class);
-        if(response.getBody()==null){
+        ResponseEntity<JsonNode> response = client.search(query, cuisine);
+        if (response.getBody() == null || response.getBody().get("results") == null) {
             LOGGER.error("There are no results found for recipe {}", query);
             return List.of();
         }
@@ -52,9 +50,7 @@ public class SpoonacularService {
      * @return a recipe matching passed recipeId
      * **/
     public Recipe getRecipeInfo(int recipeId) {
-        String url = String.format("%s/recipes/%d/information?apiKey=%s&includeNutrition=false",
-                config.getBaseUrl(), recipeId, config.getApiKey());
-        ResponseEntity<Recipe> response = restTemplate.getForEntity(url, Recipe.class);
+        ResponseEntity<Recipe> response = client.recipeInfo(recipeId);
 
         if(response.getBody() == null){
             LOGGER.error("Failed to fetch information for recipeId {}", recipeId);
@@ -70,15 +66,16 @@ public class SpoonacularService {
      * **/
     public double getCustomizedCalories(int recipeId, ExcludeRequest excludeRequest) {
         Recipe recipe = getRecipeInfo(recipeId);
-
-        if (recipe == null) {
-            LOGGER.error("Recipe not found for recipeId {}", recipeId);
-            throw new IllegalStateException("Recipe not found for ID: " + recipeId);
+        if (recipe.getExtendedIngredients() == null || recipe.getExtendedIngredients().isEmpty()) {
+            return 0;
         }
+
+        List<String> excluded = excludeRequest == null ? null : excludeRequest.getExcludeIngredients();
+
         double sum = 0;
-        for(Ingredient ingredient : recipe.getExtendedIngredients()){
+        for (Ingredient ingredient : recipe.getExtendedIngredients()) {
             final String currentIngredient = ingredient.getName();
-            if(excludeRequest.getExcludeIngredients() == null || !excludeRequest.getExcludeIngredients().contains(currentIngredient)){
+            if (excluded == null || !excluded.contains(currentIngredient)) {
                sum += ingredient.getAmount();
             }
         }

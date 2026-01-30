@@ -9,15 +9,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
+import java.net.URI;
 
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -38,7 +43,7 @@ class RecipeControllerIntegrationTest {
 
         ResponseEntity<Recipe> responseEntity = new ResponseEntity<>(recipe, HttpStatus.OK);
 
-        when(restTemplate.getForEntity(anyString(), eq(Recipe.class)))
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), isNull(), eq(Recipe.class)))
                 .thenReturn(responseEntity);
 
         ExcludeRequest excludeRequest = new ExcludeRequest();
@@ -57,7 +62,7 @@ class RecipeControllerIntegrationTest {
     @Test
     void getCustomizedCalories_ShouldReturn5xx_WhenRecipeIdIsInvalid() {
         // Mock the RestTemplate to return a 404 Not Found response
-        when(restTemplate.getForEntity(anyString(), eq(Recipe.class)))
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), isNull(), eq(Recipe.class)))
                 .thenReturn(new ResponseEntity<>(HttpStatus.NOT_FOUND));
 
         ExcludeRequest excludeRequest = new ExcludeRequest();
@@ -79,7 +84,7 @@ class RecipeControllerIntegrationTest {
         emptyRecipe.setExtendedIngredients(List.of());  // No ingredients
 
         // Mock the RestTemplate to return the empty recipe
-        when(restTemplate.getForEntity(anyString(), eq(Recipe.class)))
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), isNull(), eq(Recipe.class)))
                 .thenReturn(new ResponseEntity<>(emptyRecipe, HttpStatus.OK));
 
         ExcludeRequest excludeRequest = new ExcludeRequest();
@@ -105,7 +110,7 @@ class RecipeControllerIntegrationTest {
         recipe.setExtendedIngredients(List.of(cheese, pasta));
 
         // Mock the RestTemplate to return the recipe
-        when(restTemplate.getForEntity(anyString(), eq(Recipe.class)))
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), isNull(), eq(Recipe.class)))
                 .thenReturn(new ResponseEntity<>(recipe, HttpStatus.OK));
 
         // Empty exclude request means no ingredients are excluded
@@ -132,7 +137,7 @@ class RecipeControllerIntegrationTest {
         recipe.setExtendedIngredients(List.of(cheese, pasta));
 
         // Mock the RestTemplate to return the recipe
-        when(restTemplate.getForEntity(anyString(), eq(Recipe.class)))
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), isNull(), eq(Recipe.class)))
                 .thenReturn(new ResponseEntity<>(recipe, HttpStatus.OK));
 
         // Empty body for exclude request
@@ -150,7 +155,48 @@ class RecipeControllerIntegrationTest {
     }
 
     @Test
-    void getCustomizedCalories_ShouldReturn5xx_WhenInvalidRequestFormat() {
+    void idempotency_ShouldReplayResponse_WhenSameKeyAndRequestAreRetried() {
+        Recipe recipe = new Recipe();
+        Ingredient cheese = new Ingredient("Cheese", 1, "piece", new Nutrition(40));
+        Ingredient pasta = new Ingredient("Pasta", 100, "grams", new Nutrition(140));
+        recipe.setExtendedIngredients(List.of(cheese, pasta));
+
+        when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), isNull(), eq(Recipe.class)))
+                .thenReturn(new ResponseEntity<>(recipe, HttpStatus.OK));
+
+        ExcludeRequest excludeRequest = new ExcludeRequest();
+        excludeRequest.setExcludeIngredients(List.of("Cheese"));
+
+        String key = "test-key-123";
+
+        webTestClient.post()
+                .uri("/api/recipes/calories?recipeId=456")
+                .header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(excludeRequest)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Idempotency-Status", "MISS")
+                .expectBody(Double.class)
+                .isEqualTo(100.0);
+
+        // Retry the same request with the same Idempotency-Key.
+        webTestClient.post()
+                .uri("/api/recipes/calories?recipeId=456")
+                .header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(excludeRequest)
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().valueEquals("Idempotency-Status", "HIT")
+                .expectBody(Double.class)
+                .isEqualTo(100.0);
+
+        verify(restTemplate, times(1)).exchange(any(URI.class), eq(HttpMethod.GET), isNull(), eq(Recipe.class));
+    }
+
+    @Test
+    void getCustomizedCalories_ShouldReturn4xx_WhenInvalidRequestFormat() {
         // Send an invalid JSON request (e.g., missing fields)
         String invalidRequestBody = "{ \"exclude\": \"Cheese\" }";  // Invalid format
 
@@ -160,7 +206,7 @@ class RecipeControllerIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(invalidRequestBody)
                 .exchange()
-                .expectStatus().is5xxServerError();
+                .expectStatus().isBadRequest();
     }
 
 }
