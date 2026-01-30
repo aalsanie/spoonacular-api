@@ -115,7 +115,17 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 
             byte[] respBody = cachingResponse.getContentAsByteArray();
             HttpHeaders headers = new HttpHeaders();
-            cachingResponse.getHeaderNames().forEach(name -> headers.put(name, new java.util.ArrayList<>(cachingResponse.getHeaders(name))));
+            cachingResponse.getHeaderNames().forEach(name ->
+                    headers.put(name, new java.util.ArrayList<>(cachingResponse.getHeaders(name)))
+            );
+
+            // Content-Type is not guaranteed to appear in getHeaderNames() across containers;
+            // ensure it is captured so replay uses the same media type.
+            String contentType = cachingResponse.getContentType();
+            if (contentType != null && !contentType.isBlank() && !headers.containsKey(HttpHeaders.CONTENT_TYPE)) {
+                headers.set(HttpHeaders.CONTENT_TYPE, contentType);
+            }
+
             StoredResponse stored = new StoredResponse(cachingResponse.getStatus(), headers, respBody);
 
             // ensure bounded memory for in-memory default
@@ -180,7 +190,9 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
         } catch (Exception e) {
             // should never happen
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(("fallback:" + new String(bytes, StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    ("fallback:" + new String(bytes, StandardCharsets.UTF_8)).getBytes(StandardCharsets.UTF_8)
+            );
         }
     }
 }

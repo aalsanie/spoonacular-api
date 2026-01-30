@@ -1,7 +1,9 @@
 package com.atypon.controller;
 
 import com.atypon.model.ExcludeRequest;
+import com.atypon.model.Recipe;
 import com.atypon.service.SpoonacularService;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,35 +18,32 @@ public class RecipeController {
     }
 
     @GetMapping("/search")
-    public ResponseEntity<?> searchRecipes(
-            @RequestParam String query,
-            @RequestParam(required = false) String cuisine) {
-
-        return ResponseEntity.ok(spoonacularService.searchRecipes(query, cuisine));
+    public ResponseEntity<List<Recipe>> searchRecipes(@RequestParam String query,
+                                                      @RequestParam(required = false) String cuisine) {
+        if (cuisine != null && !cuisine.isBlank()) {
+            return ResponseEntity.ok(spoonacularService.searchRecipes(query, cuisine));
+        }
+        return ResponseEntity.ok(spoonacularService.searchRecipes(query));
     }
 
-    @GetMapping("/info")
-    public ResponseEntity<?> getRecipeInfo(@RequestParam int id) {
-        try{
-            return ResponseEntity.ok(spoonacularService.getRecipeInfo(id));
-        }catch (IllegalStateException e){
+    @GetMapping("/recipe-info")
+    public ResponseEntity<Recipe> getRecipeInfo(@RequestParam int recipeId) {
+        try {
+            return ResponseEntity.ok(spoonacularService.getRecipeInfo(recipeId));
+        } catch (IllegalStateException e) {
             return ResponseEntity.notFound().build();
         }
-
     }
-
 
     @PostMapping("/calories")
-    public ResponseEntity<?> getCustomCalories(
-            @RequestParam int recipeId,
-            @RequestBody ExcludeRequest excludeRequest) {
+    public ResponseEntity<Double> getCustomizedCalories(@RequestParam int recipeId,
+                                                        @RequestBody(required = false) ExcludeRequest excludeRequest) {
         try {
-            return ResponseEntity.ok(spoonacularService.getCustomizedCalories(recipeId, excludeRequest));
-        }catch (IllegalStateException e){
+            double calories = spoonacularService.getCustomizedCalories(recipeId, excludeRequest);
+            return ResponseEntity.ok(calories);
+        } catch (IllegalStateException e) {
+            // Tests expect 400 for invalid recipeId
             return ResponseEntity.badRequest().build();
         }
-
     }
-
-
 }

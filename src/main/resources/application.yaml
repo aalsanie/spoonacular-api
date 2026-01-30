@@ -1,6 +1,10 @@
 spring:
   application:
     name: atypon-food-api
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
 
 management:
   endpoints:
@@ -17,7 +21,7 @@ management:
 
 spoonacular:
   base-url: https://api.spoonacular.com
-  api-key: ${API_KEY} # Set API key via environment variables
+  api-key: ${API_KEY:} # Set API key via environment variables
   ## For secure API KEY usage you can use Vault, aws secrete manager or k8s config map to manage secrets
 
   health:

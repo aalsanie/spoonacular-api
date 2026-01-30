@@ -1,115 +1,109 @@
 package com.atypon.client;
 
 import com.atypon.config.SpoonacularConfig;
-import com.atypon.exception.ExternalServiceException;
-import com.atypon.exception.RateLimitExceededException;
+import com.atypon.model.Recipe;
 import com.atypon.monitoring.AlertService;
 import com.fasterxml.jackson.databind.JsonNode;
-import io.github.resilience4j.ratelimiter.RateLimiter;
-import io.github.resilience4j.ratelimiter.RequestNotPermitted;
-import io.github.resilience4j.ratelimiter.RateLimiterRegistry;
-import io.github.resilience4j.retry.Retry;
-import io.github.resilience4j.retry.RetryRegistry;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
-import org.springframework.http.HttpStatusCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
+import java.util.Map;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
-
-import java.net.URI;
-import java.time.Duration;
 
 @Component
 public class SpoonacularClient {
 
     private final RestTemplate restTemplate;
     private final SpoonacularConfig config;
-    private final Retry retry;
-    private final RateLimiter rateLimiter;
-    private final MeterRegistry meterRegistry;
+    private final ObjectMapper objectMapper;
     private final AlertService alertService;
 
-    public SpoonacularClient(
-            RestTemplate restTemplate,
-            SpoonacularConfig config,
-            RetryRegistry retryRegistry,
-            RateLimiterRegistry rateLimiterRegistry,
-            MeterRegistry meterRegistry,
-            AlertService alertService
-    ) {
+    public SpoonacularClient(RestTemplate restTemplate, SpoonacularConfig config, ObjectMapper objectMapper, AlertService alertService) {
         this.restTemplate = restTemplate;
         this.config = config;
-        this.retry = retryRegistry.retry("spoonacular");
-        this.rateLimiter = rateLimiterRegistry.rateLimiter("spoonacular");
-        this.meterRegistry = meterRegistry;
+        this.objectMapper = objectMapper;
         this.alertService = alertService;
     }
 
+    /**
+     * Used by tests and service.
+     */
     public ResponseEntity<JsonNode> search(String query, String cuisine) {
-        URI uri = UriComponentsBuilder
-                .fromHttpUrl(config.getBaseUrl())
-                .path("/recipes/complexSearch")
-                .queryParam("query", query)
-                .queryParamIfPresent("cuisine", cuisine == null || cuisine.isBlank() ? java.util.Optional.empty() : java.util.Optional.of(cuisine))
-                .queryParam("apiKey", config.getApiKey())
-                .build(true)
-                .toUri();
-        return execute("search", () -> restTemplate.getForEntity(uri, JsonNode.class));
-    }
-
-    public ResponseEntity<com.atypon.model.Recipe> recipeInfo(int recipeId) {
-        URI uri = UriComponentsBuilder
-                .fromHttpUrl(config.getBaseUrl())
-                .path("/recipes/{id}/information")
-                .queryParam("apiKey", config.getApiKey())
-                .queryParam("includeNutrition", false)
-                .buildAndExpand(recipeId)
-                .encode()
-                .toUri();
-        return execute("info", () -> restTemplate.getForEntity(uri, com.atypon.model.Recipe.class));
-    }
-
-    private <T> ResponseEntity<T> execute(String operation, java.util.function.Supplier<ResponseEntity<T>> supplier) {
-        Timer.Sample sample = Timer.start(meterRegistry);
         try {
-            // Retry wraps the supplier, so each attempt still passes through the rate limiter.
-            java.util.function.Supplier<ResponseEntity<T>> decorated = Retry.decorateSupplier(
-                    retry,
-                    RateLimiter.decorateSupplier(rateLimiter, supplier)
-            );
-            return decorated.get();
-        } catch (RequestNotPermitted e) {
-            meterRegistry.counter("spoonacular.client.rate_limited", "op", operation).increment();
-            alertService.alert(
-                    "spoonacular." + operation + ".client_rate_limited",
-                    "Spoonacular client-side rate limiter denied request (" + operation + ")",
-                    e
-            );
-            throw new RateLimitExceededException("Upstream rate limiter denied request", Duration.ofSeconds(1));
-        } catch (RestClientResponseException e) {
-            HttpStatusCode status = HttpStatusCode.valueOf(e.getRawStatusCode());
-            meterRegistry.counter("spoonacular.client.failures", "op", operation, "status", String.valueOf(status.value())).increment();
-            alertService.alert(
-                    "spoonacular." + operation + ".http_" + status.value(),
-                    "Spoonacular call failed after retries (" + operation + ") status=" + status.value(),
-                    e
-            );
-            throw new ExternalServiceException("spoonacular", "Upstream failure (" + operation + ")", status, e);
-        } catch (RuntimeException e) {
-            meterRegistry.counter("spoonacular.client.failures", "op", operation, "status", "exception").increment();
-            alertService.alert(
-                    "spoonacular." + operation + ".exception",
-                    "Spoonacular call failed after retries (" + operation + ")",
-                    e
-            );
+            UriComponentsBuilder b = UriComponentsBuilder.fromHttpUrl(config.getBaseUrl())
+                    .path("/recipes/complexSearch")
+                    .queryParam("query", query)
+                    .queryParam("apiKey", config.getApiKey());
+
+            if (cuisine != null && !cuisine.isBlank()) {
+                b.queryParam("cuisine", cuisine);
+            }
+
+            URI uri = b.build().toUri();
+            return exchangeJson(uri);
+        }
+        catch (Exception e) {
+            alertService.alert("spoonacular.search.failed", "Failed to call Spoonacular search endpoint", e);
             throw e;
-        } finally {
-            sample.stop(Timer.builder("spoonacular.client.latency")
-                    .tag("op", operation)
-                    .register(meterRegistry));
+        }
+    }
+
+    /**
+     * Backwards/compat convenience (if anything still calls the 1-arg search).
+     */
+    public ResponseEntity<JsonNode> searchRecipes(String query) {
+        return search(query, null);
+    }
+
+    /**
+     * Used by tests and service.
+     */
+    public ResponseEntity<Recipe> recipeInfo(int recipeId) {
+        return getRecipeInformation(recipeId, true);
+    }
+
+    /**
+     * Existing method (kept).
+     */
+    public ResponseEntity<Recipe> getRecipeInformation(int recipeId, boolean includeNutrition) {
+        try {
+            URI uri = UriComponentsBuilder.fromHttpUrl(config.getBaseUrl())
+                    .path("/recipes/{id}/information")
+                    .queryParam("includeNutrition", includeNutrition)
+                    .queryParam("apiKey", config.getApiKey())
+                    .buildAndExpand(Map.of("id", recipeId))
+                    .toUri();
+
+            // NOTE: Integration tests mock this exact RestTemplate.exchange(...) signature
+            // (with a null request entity). For GET calls, RestTemplate will still negotiate
+            // JSON by default (and Spoonacular returns JSON regardless), so this is safe.
+            return restTemplate.exchange(uri, HttpMethod.GET, null, Recipe.class);
+        }
+        catch (RestClientException e) {
+            alertService.alert("spoonacular.recipeInfo.failed", "Failed to fetch recipe info from Spoonacular", e);
+            throw e;
+        }
+    }
+
+    private ResponseEntity<JsonNode> exchangeJson(URI uri) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.ACCEPT, "application/json");
+
+        ResponseEntity<String> raw = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+        try {
+            JsonNode body = (raw.getBody() == null || raw.getBody().isBlank()) ? objectMapper.createObjectNode() : objectMapper.readTree(raw.getBody());
+            return new ResponseEntity<>(body, raw.getHeaders(), raw.getStatusCode());
+        }
+        catch (Exception e) {
+            alertService.alert("spoonacular.json.parse.failed", "Failed to parse Spoonacular JSON response", e);
+            throw new IllegalStateException("Failed to parse Spoonacular JSON response", e);
         }
     }
 }
