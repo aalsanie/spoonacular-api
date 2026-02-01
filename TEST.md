@@ -1,4 +1,4 @@
-# TEST.md — API Test Kit
+# API Test Kit
 
 This file is a **complete, runnable test kit** for **every API endpoint** in this codebase, including:
 
@@ -11,8 +11,8 @@ This file is a **complete, runnable test kit** for **every API endpoint** in thi
 
 > **Two modes**
 >
-> 1) **Stub mode (recommended)** — no quota, no real Spoonacular required (WireMock).
-> 2) **Real mode** — hits Spoonacular for real (requires `API_KEY`).
+> 1) **Stub mode (recommended)** — no quota, no real spoonacular required (WireMock).
+> 2) **Real mode** — hits spoonacular for real (requires `API_KEY`).
 
 ---
 
@@ -47,78 +47,16 @@ This file is a **complete, runnable test kit** for **every API endpoint** in thi
 
 ### 1.1 Start WireMock + stubs
 
-Create: `scripts/start-wiremock.sh`
+#### Run
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WM_DIR="${ROOT_DIR}/.wiremock"
-MAP_DIR="${WM_DIR}/mappings"
-mkdir -p "${MAP_DIR}"
-
-# --- /recipes/complexSearch stub (search) ---
-cat > "${MAP_DIR}/search.json" <<'JSON'
-{
-  "request": {
-    "method": "GET",
-    "urlPath": "/recipes/complexSearch"
-  },
-  "response": {
-    "status": 200,
-    "headers": { "Content-Type": "application/json" },
-    "jsonBody": {
-      "results": [
-        { "id": 456, "title": "Pasta With Cheese" },
-        { "id": 457, "title": "Apple Salad" }
-      ]
-    }
-  }
-}
-JSON
-
-# --- /recipes/{id}/information stubs (recipe-info + calories) ---
-cat > "${MAP_DIR}/recipe-456.json" <<'JSON'
-{
-  "request": { "method": "GET", "urlPath": "/recipes/456/information" },
-  "response": {
-    "status": 200,
-    "headers": { "Content-Type": "application/json" },
-    "jsonBody": {
-      "id": 456,
-      "title": "Pasta With Cheese",
-      "extendedIngredients": [
-        { "name": "Cheese", "amount": 1, "unit": "piece", "nutrition": { "calories": 40 } },
-        { "name": "Pasta", "amount": 100, "unit": "grams", "nutrition": { "calories": 140 } }
-      ]
-    }
-  }
-}
-JSON
-
-cat > "${MAP_DIR}/recipe-999.json" <<'JSON'
-{
-  "request": { "method": "GET", "urlPath": "/recipes/999/information" },
-  "response": {
-    "status": 404,
-    "headers": { "Content-Type": "application/json" },
-    "jsonBody": { "message": "Not found" }
-  }
-}
-JSON
-
-echo "Starting WireMock on :9000 ..."
-docker run --rm -p 9000:8080 \
-  -v "${WM_DIR}:/home/wiremock" \
-  wiremock/wiremock:3.5.4
-```
-
-Run it:
-
+- linux:
 ```bash
 chmod +x scripts/start-wiremock.sh
 ./scripts/start-wiremock.sh
+```
+- windows:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-wiremock.ps1
 ```
 
 ### 1.2 Start your API pointing at WireMock
@@ -136,339 +74,117 @@ export RATE_LIMITS_INBOUND_TIMEOUT="0ms"
 ./mvnw spring-boot:run
 ```
 
-Default API port is **8091**:
+#### Try it
 
-```bash
-BASE_URL="http://localhost:8091"
+In another terminal
+
+1) Happy path
+  ```shell
+  curl http://localhost:9000/__admin/mappings
+  
+   curl "http://localhost:8091/api/recipes/search?query=pasta&cuisine=italian"
+  ```
+
+2) Idempotency Miss (first request):
+```shell
+curl.exe -i -X POST "http://localhost:8091/api/recipes/calories?recipeId=456" `
+  -H "Content-Type: application/json" `
+  -H "Idempotency-Key: demo-key-123" `
+  -d "{\"excludeIngredients\":[\"Cheese\"]}"
 ```
 
+3) Idempotency Hit (second matching request):
+```shell
+curl.exe -i -X POST "http://localhost:8091/api/recipes/calories?recipeId=456" `
+  -H "Content-Type: application/json" `
+  -H "Idempotency-Key: demo-key-123" `
+  -d "{\"excludeIngredients\":[\"Cheese\"]}"
+```
 ---
 
-## 2) Real mode
+4) Invalid request format (400)
+```shell
+# Bad JSON wrong field
+curl.exe -i -X POST "http://localhost:8091/api/recipes/calories?recipeId=456" `
+  -H "Content-Type: application/json" `
+  -d "{\"exclude\":\"Cheese\"}"
 
-```bash
-export API_KEY="your_spoonacular_key"
+# Invalid JSON syntax error
+curl.exe -i -X POST "http://localhost:8091/api/recipes/calories?recipeId=456" `
+  -H "Content-Type: application/json" `
+  -d "{"
+
+# Missing required param
+curl.exe -i -X POST "http://localhost:8091/api/recipes/calories" `
+  -H "Content-Type: application/json" `
+  -d "{\"excludeIngredients\":[\"Cheese\"]}"
+
+```
+
+5) Inbound rate limit + Retry-After (429)
+```shell
+export RATE_LIMITS_INBOUND_LIMIT_FOR_PERIOD = "3"
+export RATE_LIMITS_INBOUND_REFRESH_PERIOD   = "5s"
+export RATE_LIMITS_INBOUND_TIMEOUT          = "0ms"
 ./mvnw spring-boot:run
-```
 
----
-
-## 3) Smoke test for every endpoint
-
-Create: `scripts/smoke.sh`
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-BASE_URL="${BASE_URL:-http://localhost:8091}"
-
-echo "== Root redirect =="
-curl -sS -i "${BASE_URL}/" | sed -n '1,12p'
-echo
-
-echo "== Swagger =="
-curl -sS -i "${BASE_URL}/swagger-ui.html" | sed -n '1,12p'
-echo
-
-echo "== Actuator health =="
-curl -sS -i "${BASE_URL}/actuator/health" | sed -n '1,20p'
-echo
-
-echo "== Search =="
-curl -sS -i "${BASE_URL}/api/recipes/search?query=pasta&cuisine=italian" | sed -n '1,30p'
-echo
-
-echo "== Recipe info (ok) =="
-curl -sS -i "${BASE_URL}/api/recipes/recipe-info?recipeId=456" | sed -n '1,40p'
-echo
-
-echo "== Calories (exclude Cheese) =="
-curl -sS -i -X POST \
-  "${BASE_URL}/api/recipes/calories?recipeId=456" \
-  -H 'Content-Type: application/json' \
-  -d '{"excludeIngredients":["Cheese"]}' | sed -n '1,40p'
-echo
-
-echo "== Calories (empty exclude list) =="
-curl -sS -i -X POST \
-  "${BASE_URL}/api/recipes/calories?recipeId=456" \
-  -H 'Content-Type: application/json' \
-  -d '{"excludeIngredients":[]}' | sed -n '1,40p'
-echo
-```
-
-Run:
-
-```bash
-chmod +x scripts/smoke.sh
-./scripts/smoke.sh
-```
-
----
-
-## 4) Idempotency tests (MISS, HIT and conflicts)
-
-Create: `scripts/idempotency.sh`
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-BASE_URL="${BASE_URL:-http://localhost:8091}"
-KEY="${KEY:-demo-key-123}"
-
-echo "== First request (should be MISS) =="
-curl -sS -i -X POST \
-  "${BASE_URL}/api/recipes/calories?recipeId=456" \
-  -H "Idempotency-Key: ${KEY}" \
-  -H 'Content-Type: application/json' \
-  -d '{"excludeIngredients":["Cheese"]}' | sed -n '1,80p'
-echo
-
-echo "== Second request same key+payload (should be HIT) =="
-curl -sS -i -X POST \
-  "${BASE_URL}/api/recipes/calories?recipeId=456" \
-  -H "Idempotency-Key: ${KEY}" \
-  -H 'Content-Type: application/json' \
-  -d '{"excludeIngredients":["Cheese"]}' | sed -n '1,80p'
-echo
-
-echo "== Same key, different payload (should be 409 conflict) =="
-curl -sS -i -X POST \
-  "${BASE_URL}/api/recipes/calories?recipeId=456" \
-  -H "Idempotency-Key: ${KEY}" \
-  -H 'Content-Type: application/json' \
-  -d '{"excludeIngredients":["Pasta"]}' | sed -n '1,120p'
-echo
-
-echo "== In-flight duplicate conflict (409 IN_FLIGHT) =="
-# Two concurrent requests with same key.
-KEY2="${KEY}-inflight"
-
-( curl -sS -i -X POST \
-    "${BASE_URL}/api/recipes/calories?recipeId=456" \
-    -H "Idempotency-Key: ${KEY2}" \
-    -H 'Content-Type: application/json' \
-    -d '{"excludeIngredients":["Cheese"]}' > /tmp/idempo_a.txt ) &
-
-( curl -sS -i -X POST \
-    "${BASE_URL}/api/recipes/calories?recipeId=456" \
-    -H "Idempotency-Key: ${KEY2}" \
-    -H 'Content-Type: application/json' \
-    -d '{"excludeIngredients":["Cheese"]}' > /tmp/idempo_b.txt ) &
-
-wait
-
-echo "--- Response A ---"
-sed -n '1,60p' /tmp/idempo_a.txt
-echo
-echo "--- Response B ---"
-sed -n '1,90p' /tmp/idempo_b.txt
-echo
-```
-
-Expected:
-- First response: `Idempotency-Status: MISS`
-- Second response: `Idempotency-Status: HIT`
-- Same key with different body: **409**
-- In-flight collision: one succeeds, the other returns **409** with `Idempotency-Status: IN_FLIGHT`
-
----
-
-## 5) Invalid request format (400)
-
-Create: `scripts/bad-request.sh`
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-BASE_URL="${BASE_URL:-http://localhost:8091}"
-
-echo "== Invalid JSON shape (expect 400 + {error,path}) =="
-curl -sS -i -X POST \
-  "${BASE_URL}/api/recipes/calories?recipeId=456" \
-  -H 'Content-Type: application/json' \
-  -d '{ "exclude": "Cheese" }' | sed -n '1,120p'
-echo
-```
-
----
-
-## 6) Inbound rate limit + Retry-After (429)
-
-Create: `scripts/rate-limit.sh`
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-BASE_URL="${BASE_URL:-http://localhost:8091}"
-
-echo "Hammering calories to trigger 429..."
-for i in $(seq 1 30); do
-  code="$(curl -sS -o /tmp/rl_body.txt -w '%{http_code}' -X POST \
-    "${BASE_URL}/api/recipes/calories?recipeId=456" \
-    -H 'Content-Type: application/json' \
+## Hammer the devil out of it - linux
+for i in $(seq 1 50); do
+  headers="$(curl -sS -D - -o /dev/null \
+    -X POST "http://localhost:8091/api/recipes/calories?recipeId=456" \
+    -H "Content-Type: application/json" \
     -d '{"excludeIngredients":["Cheese"]}')"
 
-  if [[ "${code}" == "429" ]]; then
-    echo "Got 429 on attempt ${i}"
-    echo "Body:"
-    cat /tmp/rl_body.txt
-    echo
-    echo "Headers snapshot:"
-    curl -sS -D - -o /dev/null -X POST \
-      "${BASE_URL}/api/recipes/calories?recipeId=456" \
-      -H 'Content-Type: application/json' \
-      -d '{"excludeIngredients":["Cheese"]}' | sed -n '1,30p'
+  http_line="$(printf '%s\n' "$headers" | sed -n '1p')"
+  retry_after="$(printf '%s\n' "$headers" | grep -i '^Retry-After:' || true)"
+
+  echo "attempt=$i"
+  echo "$http_line"
+  [[ -n "$retry_after" ]] && echo "$retry_after"
+  echo
+
+  if echo "$http_line" | grep -q ' 429 '; then
     exit 0
   fi
-
-  echo "attempt=${i} code=${code}"
 done
 
-echo "Did not hit 429. Start the app with lower limits (see Stub mode env vars)."
 ```
-
----
-
-## 7) Client-side retries + exponential backoff honoring Retry-After
-
-Create: `scripts/client-retry.sh`
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-BASE_URL="${BASE_URL:-http://localhost:8091}"
-URL="${URL:-${BASE_URL}/api/recipes/calories?recipeId=456}"
-BODY='{"excludeIngredients":["Cheese"]}'
-
-max_attempts="${MAX_ATTEMPTS:-8}"
-base_sleep="${BASE_SLEEP_SECONDS:-1}"
-
-attempt=1
-sleep_s="${base_sleep}"
-
-while [[ $attempt -le $max_attempts ]]; do
-  echo "Attempt ${attempt}/${max_attempts}..."
-
-  tmp_headers="$(mktemp)"
-  tmp_body="$(mktemp)"
-  code="$(curl -sS -D "${tmp_headers}" -o "${tmp_body}" -w '%{http_code}' \
-    -X POST "${URL}" -H 'Content-Type: application/json' -d "${BODY}")"
-
-  if [[ "${code}" == "200" ]]; then
-    echo "OK:"
-    cat "${tmp_body}"
-    rm -f "${tmp_headers}" "${tmp_body}"
-    exit 0
-  fi
-
-  if [[ "${code}" == "429" ]]; then
-    retry_after="$(grep -i '^Retry-After:' "${tmp_headers}" | awk '{print $2}' | tr -d '\r' || true)"
-    if [[ -n "${retry_after}" ]]; then
-      echo "429 rate-limited; honoring Retry-After=${retry_after}s"
-      sleep "${retry_after}"
-    else
-      echo "429 rate-limited; sleeping ${sleep_s}s"
-      sleep "${sleep_s}"
-    fi
-  elif [[ "${code}" =~ ^5 ]]; then
-    echo "${code} server error; sleeping ${sleep_s}s"
-    sleep "${sleep_s}"
-  else
-    echo "Non-retryable status=${code}"
-    echo "Body:"
-    cat "${tmp_body}"
-    rm -f "${tmp_headers}" "${tmp_body}"
-    exit 1
-  fi
-
-  rm -f "${tmp_headers}" "${tmp_body}"
-
-  sleep_s=$(( sleep_s * 2 ))
-  if [[ $sleep_s -gt 16 ]]; then sleep_s=16; fi
-
-  attempt=$(( attempt + 1 ))
-done
-
-echo "Exhausted retries after ${max_attempts} attempts."
-exit 2
-```
-
-Run:
-
-```bash
-chmod +x scripts/client-retry.sh
-./scripts/client-retry.sh
-```
-
----
-
-## 8) External dependency failure tests (Spoonacular down / wrong URL / missing key)
-
-Validate API behavior when `Spoonacular` fails.
-
-### 8.1 Force spoonacular “down” (connection failure)
-
-Start the app:
-
-```bash
-export SPOONACULAR_BASE_URL="http://localhost:59999
-export SPOONACULAR_API_KEY="dummy"
-./mvnw spring-boot:run
-```
-
-Then call:
-
-```bash
-curl -sS -i -X POST "http://localhost:8091/api/recipes/calories?recipeId=456" \
-  -H 'Content-Type: application/json' \
-  -d '{"excludeIngredients":["Cheese"]}' | sed -n '1,80p'
-```
-
-Expect: **5xx** (and your global error response format).
-
-### 8.2 Missing API key (config invalid)
-
-Start without `API_KEY` (or set it empty):
-
-```bash
-unset API_KEY
-./mvnw spring-boot:run
-```
-
-Check:
-
-```bash
-curl -sS -i http://localhost:8091/actuator/health | sed -n '1,80p'
-```
-
----
-
-## 9) PowerShell equivalents (quick)
 
 ```powershell
-$BASE="http://localhost:8091"
-
-# search
-curl "$BASE/api/recipes/search?query=pasta&cuisine=italian"
-
-# calories
-curl -Method POST "$BASE/api/recipes/calories?recipeId=456" `
-  -Headers @{ "Content-Type"="application/json" } `
-  -Body '{"excludeIngredients":["Cheese"]}'
-
-# idempotency
-curl -Method POST "$BASE/api/recipes/calories?recipeId=456" `
-  -Headers @{ "Content-Type"="application/json"; "Idempotency-Key"="k1" } `
-  -Body '{"excludeIngredients":["Cheese"]}'
+# powershell hammer
+1..20 | % {
+  curl.exe -sS -D - -o NUL -X POST "http://localhost:8091/api/recipes/calories?recipeId=456" `
+    -H "Content-Type: application/json" `
+    -d "{\"excludeIngredients\":[\"Cheese\"]}" |
+    findstr /I "HTTP/ Retry-After"
+  ""
+}
 ```
 
----
+6) Client-side retries + exponential backoff honoring Retry-After
+```shell
+# Linux
+export RATE_LIMITS_INBOUND_LIMIT_FOR_PERIOD="1"
+export RATE_LIMITS_INBOUND_REFRESH_PERIOD="30s"
+export RATE_LIMITS_INBOUND_TIMEOUT="0ms"
 
-## 10) Note on Resilience4j “outbound retries”
+./mvnw spring-boot:run
+
+chmod +x client-retry.sh
+./client-retry.sh
+```
+```powershell
+# powershell back off
+# Always set values so you can actually trigger the inbound backoff
+$env:RATE_LIMITS_INBOUND_LIMIT_FOR_PERIOD = "1"
+$env:RATE_LIMITS_INBOUND_REFRESH_PERIOD   = "30s"
+$env:RATE_LIMITS_INBOUND_TIMEOUT          = "0ms"
+./mvnw spring-boot:run
+# execute 2 times to trigger
+powershell -ExecutionPolicy Bypass -File .\scripts\client-retry.ps1
+```
+
+7) Note on Resilience4j “outbound retries”
 
 **Resilience4j retry settings**: outbound retries are only active if the `Spoonacular` call path is actually wrapped/annotated to use them.
 
