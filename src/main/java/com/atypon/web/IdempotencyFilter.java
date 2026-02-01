@@ -119,8 +119,6 @@ public class IdempotencyFilter extends OncePerRequestFilter {
                     headers.put(name, new java.util.ArrayList<>(cachingResponse.getHeaders(name)))
             );
 
-            // Content-Type is not guaranteed to appear in getHeaderNames() across containers;
-            // ensure it is captured so replay uses the same media type.
             String contentType = cachingResponse.getContentType();
             if (contentType != null && !contentType.isBlank() && !headers.containsKey(HttpHeaders.CONTENT_TYPE)) {
                 headers.set(HttpHeaders.CONTENT_TYPE, contentType);

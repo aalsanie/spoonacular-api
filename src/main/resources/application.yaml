@@ -21,11 +21,10 @@ management:
 
 spoonacular:
   base-url: https://api.spoonacular.com
-  api-key: ${API_KEY:} # Set API key via environment variables
-  ## For secure API KEY usage you can use Vault, aws secrete manager or k8s config map to manage secrets
+  api-key: ${API_KEY:}
 
   health:
-    # If enabled, performs a real outbound call for health (consumes quota).
+    # If enabled, performs a real outbound call for health.
     live-check-enabled: false
     cache-ttl: 60s
 
@@ -44,7 +43,7 @@ idempotency:
 rate-limits:
   inbound:
     enabled: true
-    # per-client (IP) limits. This protects your API even if Spoonacular quotas are generous.
+    # per-client (IP) limits.
     limit-for-period: 120
     refresh-period: 60s
     timeout: 0ms
@@ -80,7 +79,7 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html  # Default Swagger UI path
 
-## for testing purposes, should be removed in prod
+## for testing purposes
 logging:
   level:
     org:

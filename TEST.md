@@ -1,8 +1,8 @@
-# TEST.md — Atypon Food API Test Kit
+# TEST.md — API Test Kit
 
 This file is a **complete, runnable test kit** for **every API endpoint** in this codebase, including:
 
-- Business endpoints
+- spoonacular endpoints
 - Swagger + Actuator
 - Idempotency (`Idempotency-Key`, `Idempotency-Status`)
 - Inbound rate limiting (`429` + `Retry-After`)
@@ -18,7 +18,7 @@ This file is a **complete, runnable test kit** for **every API endpoint** in thi
 
 ## 0) Endpoints covered
 
-### Business APIs
+### APIs
 - `GET  /api/recipes/search?query=...&cuisine=...`
 - `GET  /api/recipes/recipe-info?recipeId=...`
 - `POST /api/recipes/calories?recipeId=...` body: `{"excludeIngredients":["Cheese"]}` (or empty)
@@ -31,7 +31,7 @@ This file is a **complete, runnable test kit** for **every API endpoint** in thi
 - `GET /actuator/metrics`
 - `GET /actuator/prometheus`
 
-### Cross-cutting behavior you can validate
+### Cross-cutting behavior
 - `X-Request-Id` is always present
 - Idempotency:
   - Request header: `Idempotency-Key`
@@ -43,7 +43,7 @@ This file is a **complete, runnable test kit** for **every API endpoint** in thi
 
 ---
 
-## 1) Stub mode (deterministic): Fake Spoonacular with WireMock
+## 1) Stub mode: spoonacular with wireMock
 
 ### 1.1 Start WireMock + stubs
 
@@ -127,9 +127,8 @@ In another terminal:
 
 ```bash
 export SPOONACULAR_BASE_URL="http://localhost:9000"
-export SPOONACULAR_API_KEY="dummy"
+export SPOONACULAR_API_KEY="SPOONACULAR_API_KEY"
 
-# Make rate limit easy to trigger quickly
 export RATE_LIMITS_INBOUND_LIMIT_FOR_PERIOD=3
 export RATE_LIMITS_INBOUND_REFRESH_PERIOD="5s"
 export RATE_LIMITS_INBOUND_TIMEOUT="0ms"
@@ -137,7 +136,7 @@ export RATE_LIMITS_INBOUND_TIMEOUT="0ms"
 ./mvnw spring-boot:run
 ```
 
-Default API port is **8091**, so:
+Default API port is **8091**:
 
 ```bash
 BASE_URL="http://localhost:8091"
@@ -145,14 +144,12 @@ BASE_URL="http://localhost:8091"
 
 ---
 
-## 2) Real mode (calls Spoonacular for real)
+## 2) Real mode
 
 ```bash
 export API_KEY="your_spoonacular_key"
 ./mvnw spring-boot:run
 ```
-
-Same scripts below apply — expect variability and quota consumption.
 
 ---
 
@@ -210,7 +207,7 @@ chmod +x scripts/smoke.sh
 
 ---
 
-## 4) Idempotency tests (MISS → HIT + conflicts)
+## 4) Idempotency tests (MISS, HIT and conflicts)
 
 Create: `scripts/idempotency.sh`
 
@@ -335,7 +332,7 @@ echo "Did not hit 429. Start the app with lower limits (see Stub mode env vars).
 
 ---
 
-## 7) Client-side retries + exponential backoff honoring Retry-After (ready)
+## 7) Client-side retries + exponential backoff honoring Retry-After
 
 Create: `scripts/client-retry.sh`
 
@@ -411,14 +408,14 @@ chmod +x scripts/client-retry.sh
 
 ## 8) External dependency failure tests (Spoonacular down / wrong URL / missing key)
 
-These validate your API behavior when Spoonacular fails.
+Validate API behavior when `Spoonacular` fails.
 
-### 8.1 Force Spoonacular “down” (connection failure)
+### 8.1 Force spoonacular “down” (connection failure)
 
 Start the app:
 
 ```bash
-export SPOONACULAR_BASE_URL="http://localhost:59999"   # nothing listening
+export SPOONACULAR_BASE_URL="http://localhost:59999
 export SPOONACULAR_API_KEY="dummy"
 ./mvnw spring-boot:run
 ```
@@ -473,13 +470,8 @@ curl -Method POST "$BASE/api/recipes/calories?recipeId=456" `
 
 ## 10) Note on Resilience4j “outbound retries”
 
-Your `application.yaml` has **Resilience4j retry settings**, but outbound retries are only active if the Spoonacular call path is actually wrapped/annotated to use them.
+**Resilience4j retry settings**: outbound retries are only active if the `Spoonacular` call path is actually wrapped/annotated to use them.
 
-So today:
 - Inbound rate limiting is testable via `429 + Retry-After`
 - Client-side retry/backoff is testable via `scripts/client-retry.sh`
-- Outbound (Spoonacular) retry/backoff is **not guaranteed** unless code uses Resilience4j in the Spoonacular client/service path.
-
-(If you want outbound retries implemented properly, say so and I’ll wire it production-grade.)
-
----
+- Outbound (Spoonacular) retry/backoff is **not guaranteed** unless code uses `Resilience4j` in the `Spoonacular` client/service path.

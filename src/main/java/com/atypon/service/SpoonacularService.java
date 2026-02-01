@@ -23,7 +23,6 @@ public class SpoonacularService {
     public List<Recipe> searchRecipes(String query, String cuisine) {
         ResponseEntity<JsonNode> resp = client.search(query, cuisine);
         if (resp == null || !resp.getStatusCode().is2xxSuccessful()) {
-            // Unit tests only cover the happy-path, but callers rely on a consistent contract.
             return List.of();
         }
 

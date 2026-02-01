@@ -54,23 +54,14 @@ public class SpoonacularClient {
         }
     }
 
-    /**
-     * Backwards/compat convenience (if anything still calls the 1-arg search).
-     */
     public ResponseEntity<JsonNode> searchRecipes(String query) {
         return search(query, null);
     }
 
-    /**
-     * Used by tests and service.
-     */
     public ResponseEntity<Recipe> recipeInfo(int recipeId) {
         return getRecipeInformation(recipeId, true);
     }
 
-    /**
-     * Existing method (kept).
-     */
     public ResponseEntity<Recipe> getRecipeInformation(int recipeId, boolean includeNutrition) {
         try {
             URI uri = UriComponentsBuilder.fromHttpUrl(config.getBaseUrl())
@@ -80,9 +71,6 @@ public class SpoonacularClient {
                     .buildAndExpand(Map.of("id", recipeId))
                     .toUri();
 
-            // NOTE: Integration tests mock this exact RestTemplate.exchange(...) signature
-            // (with a null request entity). For GET calls, RestTemplate will still negotiate
-            // JSON by default (and Spoonacular returns JSON regardless), so this is safe.
             return restTemplate.exchange(uri, HttpMethod.GET, null, Recipe.class);
         }
         catch (RestClientException e) {
